@@ -10,7 +10,7 @@ LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DA
 LABEL maintainer="Roxedus,thespad"
 
 # environment settings
-ARG LIDARR_BRANCH="master"
+ARG LIDARR_BRANCH="plugins"
 ENV XDG_CONFIG_HOME="/config/xdg" \
   COMPlus_EnableDiagnostics=0 \
   TMPDIR=/run/lidarr-temp
