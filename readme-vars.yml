@@ -18,6 +18,7 @@ development_versions_items:
   - { tag: "latest", desc: "Stable Lidarr releases." }
   - { tag: "develop", desc: "Develop Lidarr Releases." }
   - { tag: "nightly", desc: "Nightly Lidarr Releases." }
+  - { tag: "plugins", desc: "plunins Lidarr Releases." }
 
 # container parameters
 common_param_env_vars_enabled: true #PGID, PUID, etc, you can set it to 'optional'
