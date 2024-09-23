@@ -6,8 +6,8 @@ FROM ghcr.io/linuxserver/baseimage-alpine:3.20
 ARG BUILD_DATE
 ARG VERSION
 ARG LIDARR_RELEASE
-LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL maintainer="Roxedus,thespad"
+LABEL build_version="Linuxserver.io custom build:- ${VERSION} Build-date:- ${BUILD_DATE}"
+LABEL maintainer="dillydilly"
 
 # environment settings
 ARG LIDARR_BRANCH="plugins"
