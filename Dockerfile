@@ -2,13 +2,6 @@
 
 FROM ghcr.io/linuxserver/baseimage-alpine:3.20
 
-# set version label
-ARG BUILD_DATE
-ARG VERSION
-ARG LIDARR_RELEASE
-LABEL build_version="Linuxserver.io version:- ${VERSION} Build-date:- ${BUILD_DATE}"
-LABEL maintainer="Roxedus,thespad"
-
 # environment settings
 ARG LIDARR_BRANCH="plugins"
 ENV XDG_CONFIG_HOME="/config/xdg" \
