@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM --platform=$TARGETPLATFORM docker.io/library/node:21-alpine as deemix
+FROM --platform= docker.io/library/node:21-alpine AS deemix
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
