@@ -1,0 +1,204 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+# One-shot service
+# https://github.com/just-containers/s6-overlay/issues/86
+
+s6-svc -O /var/run/service/setup
+
+echo "
+----------------------------------------------------------------------
+SETUP
+    AUTOCONFIG=$AUTOCONFIG
+----------------------------------------------------------------------"
+
+url="http://localhost:8686"
+urlPlugin="https://github.com/ta264/Lidarr.Plugin.Deemix"
+loginPath="/config_deemix/login.json"
+
+# (string, route)
+isPresent() {
+    apiCall "GET" "$2" | grep -q "$1"
+}
+
+# (arl)
+update_arl() {
+    arl=$1
+
+    echo "[autoconfig] Updating indexer"
+    old=$(apiCall "GET" "indexer" | jq '.[] | select(.name=="Deemix")')
+    if [ -z "$old" ]; then
+        value=$(jq -c '.fields[1].value='"$arl"'' /etc/services.d/setup/POST_indexer.json)
+        apiCallSilent "POST" "indexer" "$value"
+    else
+        id=$(echo "$old" | jq '.id')
+        value=$(echo "$old" | jq -c '.fields[1].value='"$arl"'')
+        apiCallSilent "PUT" "indexer/$id" "$value"
+    fi
+
+    echo "[autoconfig] Updating download client"
+    old=$(apiCall "GET" "downloadclient" | jq '.[] | select(.name=="Deemix")')
+    if [ -z "$old" ]; then
+        value=$(jq -c '.fields[4].value='"$arl"'' /etc/services.d/setup/POST_downloadclient.json)
+        apiCallSilent "POST" "downloadclient" "$value"
+    else
+        id=$(echo "$old" | jq '.id')
+        value=$(echo "$old" | jq -c '.fields[4].value='"$arl"'')
+        apiCallSilent "PUT" "downloadclient/$id" "$value"
+    fi
+}
+
+# (method, route, payload)
+apiCall() {
+    curl \
+        -s \
+        -X "$1" \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: $apiKey" \
+        -d "$3" \
+        "$url/api/v1/$2"
+}
+
+# (method, route, payload)
+apiCallSilent() {
+    curl \
+        -s \
+        -X "$1" \
+        -H "Content-Type: application/json" \
+        -H "X-Api-Key: $apiKey" \
+        -d "$3" \
+        -o /dev/null \
+        -w "[autoconfig] $1 $2 %{http_code}\n" \
+        "$url/api/v1/$2"
+}
+
+if [ "$(stat -c '%g' /usr/local/bin/clean-downloads.sh)" != "$PGUID" ]; then
+    echo "Changing ownership of scripts"
+    chown "$PUID:$PGID" /usr/local/bin/*.sh
+fi
+
+if [ ! -x /usr/local/bin/clean-downloads.sh ]; then
+    echo "Making scripts executable."
+    chmod +x /usr/local/bin/*.sh
+fi
+
+if [ "$(stat -c '%g' /music)" != "$PGUID" ]; then
+    echo "Changing ownership of /music"
+    chown "$PUID:$PGID" /music
+fi
+
+if [ "$(stat -c '%g' /downloads)" != "$PGUID" ]; then
+    echo "Changing ownership of /downloads"
+    chown "$PUID:$PGID" /downloads
+fi
+
+if [ "$AUTOCONFIG" != "true" ]; then
+    exit
+fi
+
+echo "
+----------------------------------------------------------------------
+LIDARR SETUP
+    PluginSource=$urlPlugin
+----------------------------------------------------------------------"
+
+echo "[autoconfig] Waiting Lidarr to launch on 8686..."
+while ! nc -z localhost 8686; do
+    sleep 1
+done
+
+apiKey="$(curl \
+    -sS \
+    --retry-all-errors \
+    --retry 10 \
+    $url/initialize.json |
+    jq -r '.apiKey')"
+
+plugin=$(apiCall "GET" "system/plugins" | jq '.[]|select(.name=="Deemix")')
+
+if [ -z "$plugin" ] || [ "$(echo "$plugin" | jq .updateAvailable)" = "true" ]; then
+    echo "[autoconfig] Checking github rate"
+    githubRate=$(curl -s https://api.github.com/rate_limit | jq .rate)
+    if [ "$(echo "$githubRate" | jq .remaining)" = "0" ]; then
+        deltaGithubResetTime=$(( $(echo "$githubRate" | jq .reset) - $(date +%s) + 5 ))
+        echo "[autoconfig] Waiting github rate limit reset : $deltaGithubResetTime seconds"
+        sleep $deltaGithubResetTime
+    fi
+    echo "[autoconfig] Installing / Updating Deemix plugin"
+    apiCallSilent "POST" "command" '{"name":"InstallPlugin","githubUrl":"'$urlPlugin'"}'
+
+    while [ -z "$plugin" ] || [ "$(echo "$plugin" | jq .updateAvailable)" = "true" ]; do
+        echo "[autoconfig] Waiting plugin installation..."
+        sleep 1
+        plugin=$(apiCall "GET" "system/plugins" | jq '.[]|select(.name=="Deemix")')
+    done
+    echo "[autoconfig] Stopping"
+    /run/s6/basedir/bin/halt
+fi
+
+if ! isPresent "path" "rootFolder"; then
+    echo "[autoconfig] Setting /music rootFolder"
+    value=$(cat /etc/services.d/setup/POST_rootFolder.json)
+    apiCallSilent "POST" "rootFolder" "$value"
+fi
+
+if [ "$(apiCall "GET" "delayprofile" | jq .[0].items[2].allowed)" = "false" ]; then
+    echo "[autoconfig] Allowing Deemix in default delay profile"
+    value=$(cat /etc/services.d/setup/PUT_delayprofile.json)
+    apiCallSilent "PUT" "delayprofile/1" "$value"
+fi
+
+arl=$(jq '.arl' "$loginPath")
+echo "[autoconfig] Waiting for $loginPath to be filled..."
+while [ "$(echo "$arl" | wc --chars)" != "195" ]; do
+    sleep 1
+    arl=$(jq '.arl' "$loginPath")
+done
+
+update_arl "$arl"
+
+echo "[autoconfig] Configuration is up to date"
+
+echo "
+----------------------------------------------------------------------
+Flac2MP3 SETUP
+    PUID=$PUID
+    PGID=$PGID
+    FLAC2CUSTOM_ARGS=$FLAC2CUSTOM_ARGS
+----------------------------------------------------------------------"
+
+if [ -n "$FLAC2CUSTOM_ARGS" ]; then
+    echo "[autoconfig] FLAC2CUSTOM_ARGS is set"
+    if ! isPresent "flac2" "notification"; then
+        echo "[autoconfig] Configuring flac2custom.sh custom script"
+        value=$(cat /etc/services.d/setup/POST_notification_flac2custom.json)
+        apiCallSilent "POST" "notification" "$value"
+    fi
+fi
+
+echo "
+----------------------------------------------------------------------
+Utilities SETUP
+----------------------------------------------------------------------"
+
+if ! isPresent "Clean Downloads" "notification"; then
+    echo "[autoconfig] Configuring flac2custom.sh custom script"
+    value=$(cat /etc/services.d/setup/POST_notification_clean_downloads.json)
+    apiCallSilent "POST" "notification" "$value"
+fi
+
+echo "
+----------------------------------------------------------------------
+AUTOCONFIG COMPLETED
+----------------------------------------------------------------------"
+
+echo "[autoconfig] Watching for ARL changes"
+
+while true; do
+    if inotifywait -e modify "$loginPath"; then
+        arl=$(jq '.arl' "$loginPath")
+        if [ "$(echo "$arl" | wc --chars)" == "195" ]; then
+            update_arl "$arl"
+        fi
+    fi
+done
