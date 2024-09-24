@@ -38,10 +38,6 @@ ARG LIDARR_BRANCH="plugins"
 ENV XDG_CONFIG_HOME="/config/xdg" \
   COMPlus_EnableDiagnostics=0 \
   TMPDIR=/run/lidarr-temp
-ENV DEEMIX_SINGLE_USER=true
-ENV AUTOCONFIG=true
-ENV CLEAN_DOWNLOADS=true
-
 
 RUN \
   echo "**** install packages ****" && \
@@ -71,20 +67,6 @@ RUN \
 
 # copy local files
 COPY root/ /
-
-# deemix
-COPY --from=deemix /deemix-server /deemix-server
-RUN chmod +x /deemix-server
-VOLUME ["/config_deemix", "/downloads"]
-EXPOSE 6595
-
-# arl-watch
-RUN apk add --no-cache inotify-tools && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY root /
-RUN chmod +x /etc/services.d/*/run && \
-    chmod +x /usr/local/bin/*.sh
 
 # ports and volumes
 VOLUME /config
