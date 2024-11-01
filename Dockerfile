@@ -1,30 +1,4 @@
 # syntax=docker/dockerfile:1
-
-FROM --platform=$TARGETPLATFORM docker.io/library/node:21-alpine as deemix
-
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-
-RUN echo "Building for TARGETPLATFORM=$TARGETPLATFORM | BUILDPLATFORM=$BUILDPLATFORM"
-RUN apk add --no-cache git jq python3 make gcc musl-dev g++ && \
-    rm -rf /var/lib/apt/lists/*
-RUN git clone --recurse-submodules https://gitlab.com/RemixDev/deemix-gui.git
-WORKDIR deemix-gui
-RUN case "$TARGETPLATFORM" in \
-        "linux/amd64") \
-            jq '.pkg.targets = ["node16-alpine-x64"]' ./server/package.json > tmp-json ;; \
-        "linux/arm64") \
-            jq '.pkg.targets = ["node16-alpine-arm64"]' ./server/package.json > tmp-json ;; \
-        *) \
-            echo "Platform $TARGETPLATFORM not supported" && exit 1 ;; \
-    esac && \
-    mv tmp-json /deemix-gui/server/package.json
-RUN yarn install-all
-# Patching deemix: see issue https://github.com/youegraillot/lidarr-on-steroids/issues/63
-RUN sed -i 's/const channelData = await dz.gw.get_page(channelName)/let channelData; try { channelData = await dz.gw.get_page(channelName); } catch (error) { console.error(`Caught error ${error}`); return [];}/' ./server/src/routes/api/get/newReleases.ts
-RUN yarn dist-server
-RUN mv /deemix-gui/dist/deemix-server /deemix-server
-
 FROM ghcr.io/linuxserver/baseimage-alpine:3.20
 
 # set version label
@@ -65,6 +39,31 @@ RUN \
   rm -rf \
     /app/lidarr/bin/Lidarr.Update \
     /tmp/*
+
+FROM --platform=$TARGETPLATFORM docker.io/library/node:21-alpine as deemix
+
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+
+RUN echo "Building for TARGETPLATFORM=$TARGETPLATFORM | BUILDPLATFORM=$BUILDPLATFORM"
+RUN apk add --no-cache git jq python3 make gcc musl-dev g++ && \
+    rm -rf /var/lib/apt/lists/*
+RUN git clone --recurse-submodules https://gitlab.com/RemixDev/deemix-gui.git
+WORKDIR deemix-gui
+RUN case "$TARGETPLATFORM" in \
+        "linux/amd64") \
+            jq '.pkg.targets = ["node16-alpine-x64"]' ./server/package.json > tmp-json ;; \
+        "linux/arm64") \
+            jq '.pkg.targets = ["node16-alpine-arm64"]' ./server/package.json > tmp-json ;; \
+        *) \
+            echo "Platform $TARGETPLATFORM not supported" && exit 1 ;; \
+    esac && \
+    mv tmp-json /deemix-gui/server/package.json
+RUN yarn install-all
+# Patching deemix: see issue https://github.com/youegraillot/lidarr-on-steroids/issues/63
+RUN sed -i 's/const channelData = await dz.gw.get_page(channelName)/let channelData; try { channelData = await dz.gw.get_page(channelName); } catch (error) { console.error(`Caught error ${error}`); return [];}/' ./server/src/routes/api/get/newReleases.ts
+RUN yarn dist-server
+RUN mv /deemix-gui/dist/deemix-server /deemix-server
 
 LABEL maintainer="dillydilly"
 
